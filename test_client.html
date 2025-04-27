@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOLOv10 对象检测测试客户端</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        h1 {
+            color: #343a40;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        .settings {
+            flex: 1;
+            min-width: 300px;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .results {
+            flex: 2;
+            min-width: 300px;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #495057;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+        }
+        button:hover {
+            background-color: #0069d9;
+        }
+        .result-image {
+            max-width: 100%;
+            margin-top: 20px;
+            border-radius: 4px;
+        }
+        .detection-list {
+            margin-top: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 10px;
+        }
+        .detection-item {
+            padding: 8px;
+            margin-bottom: 5px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .detection-item:last-child {
+            margin-bottom: 0;
+        }
+        .loader {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #007bff;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 2s linear infinite;
+            margin: 20px auto;
+            display: none;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            text-align: center;
+            display: none;
+        }
+        .status.success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .drag-area {
+            border: 2px dashed #007bff;
+            height: 100px;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            margin-bottom: 20px;
+        }
+        .drag-area.active {
+            border: 2px solid #28a745;
+            background-color: rgba(40, 167, 69, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <h1>YOLOv10 对象检测测试客户端</h1>
+    
+    <div class="container">
+        <div class="settings">
+            <h2>设置</h2>
+            
+            <div class="form-group">
+                <label for="api-url">API地址:</label>
+                <input type="text" id="api-url" value="http://localhost:8000" placeholder="例如: http://localhost:8000">
+            </div>
+            
+            <div class="form-group">
+                <div class="drag-area" id="drag-area">
+                    <p>拖拽图片到此处或点击上传</p>
+                    <input type="file" id="file-input" accept="image/*" style="display: none;">
+                </div>
+                <div id="file-name"></div>
+            </div>
+            
+            <div class="form-group">
+                <label for="image-size">图像大小:</label>
+                <select id="image-size">
+                    <option value="320">320</option>
+                    <option value="416">416</option>
+                    <option value="512">512</option>
+                    <option value="640" selected>640</option>
+                    <option value="1280">1280</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="conf-threshold">置信度阈值:</label>
+                <input type="range" id="conf-threshold" min="0.1" max="0.9" step="0.05" value="0.25">
+                <span id="conf-value">0.25</span>
+            </div>
+            
+            <button id="detect-btn">检测对象</button>
+            
+            <div class="status" id="status"></div>
+        </div>
+        
+        <div class="results">
+            <h2>检测结果</h2>
+            
+            <div class="loader" id="loader"></div>
+            
+            <div id="result-container" style="display: none;">
+                <img id="result-image" class="result-image" alt="检测结果图像">
+                
+                <h3>检测到的对象:</h3>
+                <div class="detection-list" id="detection-list"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const apiUrlInput = document.getElementById('api-url');
+            const fileInput = document.getElementById('file-input');
+            const dragArea = document.getElementById('drag-area');
+            const fileName = document.getElementById('file-name');
+            const imageSizeSelect = document.getElementById('image-size');
+            const confThreshold = document.getElementById('conf-threshold');
+            const confValue = document.getElementById('conf-value');
+            const detectBtn = document.getElementById('detect-btn');
+            const status = document.getElementById('status');
+            const loader = document.getElementById('loader');
+            const resultContainer = document.getElementById('result-container');
+            const resultImage = document.getElementById('result-image');
+            const detectionList = document.getElementById('detection-list');
+            
+            // 更新置信度值显示
+            confThreshold.addEventListener('input', function() {
+                confValue.textContent = this.value;
+            });
+            
+            // 点击拖拽区域触发文件选择
+            dragArea.addEventListener('click', () => {
+                fileInput.click();
+            });
+            
+            // 文件选择变化
+            fileInput.addEventListener('change', function() {
+                const file = this.files[0];
+                if(file) {
+                    fileName.textContent = `已选择文件: ${file.name}`;
+                }
+            });
+            
+            // 拖拽事件
+            dragArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dragArea.classList.add('active');
+            });
+            
+            dragArea.addEventListener('dragleave', () => {
+                dragArea.classList.remove('active');
+            });
+            
+            dragArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dragArea.classList.remove('active');
+                
+                const file = e.dataTransfer.files[0];
+                if(file && file.type.startsWith('image/')) {
+                    fileInput.files = e.dataTransfer.files;
+                    fileName.textContent = `已选择文件: ${file.name}`;
+                } else {
+                    alert('请上传图片文件!');
+                }
+            });
+            
+            // 检测按钮点击事件
+            detectBtn.addEventListener('click', function() {
+                // 检查是否选择了文件
+                if(!fileInput.files || fileInput.files.length === 0) {
+                    showStatus('请先选择一个图片文件!', false);
+                    return;
+                }
+                
+                // 获取参数
+                const apiUrl = apiUrlInput.value.trim();
+                const imageSize = imageSizeSelect.value;
+                const confThresholdValue = confThreshold.value;
+                
+                // 显示加载中
+                loader.style.display = 'block';
+                resultContainer.style.display = 'none';
+                status.style.display = 'none';
+                
+                // 创建FormData对象
+                const formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+                
+                // 发送请求
+                fetch(`${apiUrl}/detect?image_size=${imageSize}&conf_threshold=${confThresholdValue}`, {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => {
+                    if(!response.ok) {
+                        throw new Error(`请求失败: ${response.status} ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // 处理响应数据
+                    if(data && data.status === 'success') {
+                        // 显示结果图像
+                        resultImage.src = `${apiUrl}${data.result_image_url}`;
+                        
+                        // 显示检测列表
+                        detectionList.innerHTML = '';
+                        if(data.detections && data.detections.length > 0) {
+                            data.detections.forEach(detection => {
+                                const item = document.createElement('div');
+                                item.className = 'detection-item';
+                                item.innerHTML = `
+                                    <strong>类别:</strong> ${detection.class}<br>
+                                    <strong>置信度:</strong> ${(detection.confidence * 100).toFixed(2)}%<br>
+                                    <strong>边界框:</strong> [${detection.bbox.map(val => Math.round(val)).join(', ')}]
+                                `;
+                                detectionList.appendChild(item);
+                            });
+                        } else {
+                            detectionList.innerHTML = '<p>未检测到任何对象</p>';
+                        }
+                        
+                        // 显示结果容器
+                        resultContainer.style.display = 'block';
+                        showStatus('检测成功!', true);
+                    } else {
+                        showStatus(`检测失败: ${data.message || '未知错误'}`, false);
+                    }
+                })
+                .catch(error => {
+                    showStatus(`错误: ${error.message}`, false);
+                })
+                .finally(() => {
+                    loader.style.display = 'none';
+                });
+            });
+            
+            // 显示状态信息
+            function showStatus(message, isSuccess) {
+                status.textContent = message;
+                status.className = `status ${isSuccess ? 'success' : 'error'}`;
+                status.style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html> 
